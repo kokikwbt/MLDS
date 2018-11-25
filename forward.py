@@ -5,8 +5,8 @@ from tqdm import trange
 """
 def forward(X, params):
     T, N = X.shape
-    A = params["A"]
-    C = params["C"]
+    A = params["matA"]
+    C = params["matC"]
     Q = params["Q"]
     R = params["R"]
     L = A.shape[1]  # dimension of latent variable
