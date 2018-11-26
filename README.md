@@ -7,13 +7,13 @@ Multi-linear dynamical system
 
 ## mlds.py
 ```python
-class mlds. **MLDS**
+class mlds.MLDS
 ```
 
 #### Methods
 
 ```python
-__init__($self, X, ranks)
+__init__(self, X, ranks)
 ```
 
 Initialize self.
@@ -23,8 +23,9 @@ Initialize self.
   * ranks: int list
     * size of latent tensor Z
 
+---
 ```python
-em($self, max_iter=10, tol=1.e-5, cov_types)
+em(self, max_iter=10, tol=1.e-5, cov_types)
 ```
 
 Estimate mlds parameters
@@ -35,8 +36,9 @@ Estimate mlds parameters
     * covariance types for initial state, transition tensor and observation tensor
     * choose 'full', 'diag' or 'isotropic'
 
+---
 ```python
-save_params($self, outdir="./out/")
+save_params(self, outdir="./out/")
 ```
 
 save the current parameters of mlds model.
