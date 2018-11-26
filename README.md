@@ -2,35 +2,43 @@
 Multi-linear dynamical system
 \[[link](http://www.cs.cmu.edu/~leili/mlds/index.html)\]
 
-#### Initialize mode
+## Background
 
-`class` mlds. **MLDS**
-#### Notes
 
+## mlds.py
+```python
+class mlds. **MLDS**
+```
 
 #### Methods
 
-`__init__($self, X, ranks)`
+```python
+__init__($self, X, ranks)
+```
 
 Initialize self.
-###### Parameters:
+##### Parameters:
   * X: nd-array
     * tensor of shape T x N1 x ... x NM
   * ranks: int list
     * size of latent tensor Z
 
-`em($self, max_iter=10, tol=1.e-5, cov_types)`
+```python
+em($self, max_iter=10, tol=1.e-5, cov_types)
+```
 
 Estimate mlds parameters
-###### Parameters:
+##### Parameters:
   * max_iter: int
   * tol: float, optional
   * cov_types: list
-    * a
+    * covariance types for initial state, transition tensor and observation tensor
+    * choose 'full', 'diag' or 'isotropic'
 
-`save_params($self, outdir="./out/")`
+```python
+save_params($self, outdir="./out/")
+```
 
 save the current parameters of mlds model.
-###### Parameters:
-
+##### Parameters:
   * outdir: string
