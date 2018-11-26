@@ -6,7 +6,7 @@ Mark Rogers, Lei Li and Stuart J. Russell (2013), "Multilinear Dynamical Systems
 ## Background
 
 
-## mlds.py
+## Usage
 ```python
 class mlds.MLDS
 ```
@@ -24,7 +24,6 @@ Initialize self.
   * ranks: int list
     * size of latent tensor Z
 
----
 ```python
 em(self, max_iter=10, tol=1.e-5, cov_types)
 ```
@@ -37,7 +36,6 @@ Estimate mlds parameters
     * covariance types for initial state, transition tensor and observation tensor
     * choose 'full', 'diag' or 'isotropic'
 
----
 ```python
 save_params(self, outdir="./out/")
 ```
