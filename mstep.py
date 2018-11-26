@@ -66,8 +66,8 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     A = params["A"]
     C = params["C"]
     M = len(C)
-    I = [C[m].shape[1] for m in range(M)]
-    J = [A[m].shape[1] for m in range(M)]
+    I = [C[m].shape[0] for m in range(M)]
+    J = [A[m].shape[0] for m in range(M)]
     T = len(X)
 
     Sz1z = sum(Ez1z[:-1])
@@ -75,14 +75,18 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     Sxz = sum(np.outer(X[t, :], Ez[t]) for t in range(T))
     SzzT = Szz - Ezz[-1]
 
+    """
+    update mu0 & Q0
+    """
     mu0 = Ez[0]
     Q0 = Ezz[0] - np.outer(Ez[0], Ez[0])
-    if type_Q0 == "diag":
-        Q0 = diag(diag(Q0))
-    elif type_Q0 == "full":
+    if type_Q0 == "full":
         pass
+    elif type_Q0 == "diag":
+        Q0 = diag(diag(Q0))
     elif type_Q0 == "isotropic":
-        Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
+        # Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
+        pass
 
     """
     update A

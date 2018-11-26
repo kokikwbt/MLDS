@@ -1,10 +1,12 @@
 import numpy as np
+from numpy.linalg import slogdet
 from scipy.linalg import pinv
 from tqdm import trange
 """
 """
-def forward(X, params):
+def forward(X, params, loglh=True):
     T, N = X.shape
+    M = len(params["A"])
     A = params["matA"]
     C = params["matC"]
     Q = params["Q"]
@@ -15,6 +17,7 @@ def forward(X, params):
     mu = np.zeros((T, L))
     V = np.zeros((T, L, L))
     P = np.zeros((T, L, L))
+    llh = 0
 
     for t in trange(T, desc="forward"):
         if t == 0:
@@ -35,4 +38,12 @@ def forward(X, params):
         mu[t] = mu[t] + K @ delta
         V[t] = (Ih - K @ C) @ KP
 
-    return mu, V, P
+        if loglh:
+            df = delta @ inv_sgm @ delta / 2
+            if df < 0:
+                print("det of not positive definite < 0")
+            sign, logdet = slogdet(inv_sgm)
+            llh -= M / 2 * np.log(2 * np.pi)
+            llh += sign * logdet / 2 - df
+
+    return mu, V, P, llh
