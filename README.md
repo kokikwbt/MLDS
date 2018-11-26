@@ -1,5 +1,6 @@
 # MLDS
-Multi-linear dynamical system
+## Publication
+Mark Rogers, Lei Li and Stuart J. Russell (2013), "Multilinear Dynamical Systems for Tensor Time Series", In NIPS'13.
 \[[link](http://www.cs.cmu.edu/~leili/mlds/index.html)\]
 
 ## Background
@@ -10,14 +11,14 @@ Multi-linear dynamical system
 class mlds.MLDS
 ```
 
-#### Methods
+### Methods
 
 ```python
 __init__(self, X, ranks)
 ```
 
 Initialize self.
-##### Parameters:
+#### Parameters:
   * X: nd-array
     * tensor of shape T x N1 x ... x NM
   * ranks: int list
@@ -29,7 +30,7 @@ em(self, max_iter=10, tol=1.e-5, cov_types)
 ```
 
 Estimate mlds parameters
-##### Parameters:
+#### Parameters:
   * max_iter: int
   * tol: float, optional
   * cov_types: list
@@ -41,6 +42,6 @@ Estimate mlds parameters
 save_params(self, outdir="./out/")
 ```
 
-save the current parameters of mlds model.
-##### Parameters:
+Save the current parameters of mlds model.
+#### Parameters:
   * outdir: string
