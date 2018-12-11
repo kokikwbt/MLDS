@@ -29,11 +29,11 @@ class MLDS(object):
         self.W = ~np.isnan(X)
         self.vecX = to_numpy([X[t].flatten('F') for t in range(T)])
         self.vecW = ~np.isnan(self.vecX)
-        self.initialize_parameters(I, J)
+        self.init_mlds_params(I, J)
         # for training log
         self.llh = []
 
-    def em(self, max_iter=10, tol=1.e-5,
+    def em(self, vecX=None, max_iter=10, tol=1.e-5,
             covariance_types=('diag', 'diag', 'diag'), log=True):
         """
         max_iter: the maximum # of EM iterations
@@ -41,20 +41,22 @@ class MLDS(object):
         covariance_types: Isotropic, diag, or full
         """
         print("\nFitting MLDS...")
-        vecX = self.vecX
+        params = self.pack_params()
+        if vecX is None:
+            vecX = self.vecX
 
         for iter in range(max_iter):
             print("===> iter", iter + 1)
+
             # E-step
-            params = pack_params(self, multilinear=False)
             mu, V, P, llh = forward(vecX, params, loglh=True)
             Ez, Ezz, Ez1z = backward(mu, V, P, params)
+
             # M-step
-            # params = pack_params(self, multilinear=True)
             params = update_mlds_params(
                 vecX, params, Ez, Ezz, Ez1z, covariance_types
             )
-            self.unpack_params(params)
+
             print("log-likelihood=", llh)
             # save training log
             self.llh.append(llh)
@@ -62,12 +64,14 @@ class MLDS(object):
                 if abs(self.llh[-1] - self.llh[-2]) < tol:
                     print("converged!!")
                     break
+
+        self.unpack_params(params)
         self.Ez = Ez
 
     def compute_log_likelihood(self):
         pass
 
-    def initialize_parameters(self, I=None, J=None):
+    def init_mlds_params(self, I=None, J=None):
         """
         Inputs
         I: observation dimensionality
@@ -76,27 +80,48 @@ class MLDS(object):
         M = len(self.I) if I is None else len(I)
         I = self.I = to_numpy(I) if I is not None else self.I
         J = self.J = to_numpy(J) if J is not None else self.J
-        Ip, Jp = np.prod(I), np.prod(J)
+        Ip = np.prod(I)
+        Jp = np.prod(J)
         IJ = I * J
         self.mu0 = np.random.normal(0, 1, size=Jp)
         self.Q0 = np.eye(Jp) / 2
         self.Q = np.eye(Jp) / 2
         self.R = np.eye(Ip) / 2
-        self.A = A = initialize_multilinear_operator(J, J)
-        self.C = C = initialize_multilinear_operator(I, J)
+        self.A = A = init_multilinear_operator(J, J)
+        self.C = C = init_multilinear_operator(I, J)
+        self.b = np.random.rand(Jp)
+        self.d = np.random.rand(Ip)
         self.matA = kronecker(A, reverse=True)
         self.matC = kronecker(C, reverse=True)
 
     def random_sample(self, T):
-        self.rndZ = Z = np.zeros((T, np.prod(self.J)))
-        self.rndX = X = np.zeros((T, np.prod(self.I)))
+        self.rndZ = vecZ = np.zeros((T, np.prod(self.J)))
+        self.rndX = vecX = np.zeros((T, np.prod(self.I)))
         for t in trange(T, desc="random sampling"):
             if t == 0:
-                Z[0, :] = np.random.multivariate_normal(self.mu0, self.Q0)
+                vecZ[0, :] = np.random.multivariate_normal(self.mu0, self.Q0)
             else:
-                Z[t, :] = np.random.multivariate_normal(self.matA @ Z[t-1, :], self.Q)
-            X[t, :] = np.random.multivariate_normal(self.matC @ Z[t, :], self.R)
-        return X, Z
+                vecZ[t, :] = np.random.multivariate_normal(self.matA @ vecZ[t-1, :], self.Q)
+            vecX[t, :] = np.random.multivariate_normal(self.matC @ vecZ[t, :], self.R)
+        # convert vector to tensor
+        Z = to_numpy([vecZ[t].reshape(self.J[::-1]).T for t in range(T)])
+        X = to_numpy([vecX[t].reshape(self.I[::-1]).T for t in range(T)])
+        return (X, vecX), (Z, vecZ)
+
+    def pack_params(self):
+        params = {
+            "mu0": self.mu0,
+            "Q0": self.Q0,
+            "Q": self.Q,
+            "R": self.R,
+            "A": self.A,
+            "b": self.b,
+            "C": self.C,
+            "d": self.d,
+            "matA": self.matA,
+            "matC": self.matC
+        }
+        return params
 
     def unpack_params(self, params):
         self.mu0 = params["mu0"]
@@ -104,7 +129,9 @@ class MLDS(object):
         self.Q = params["Q"]
         self.R = params["R"]
         self.A = params["A"]
+        self.b = params["b"]
         self.C = params["C"]
+        self.d = params["d"]
         self.matA = params["matA"]
         self.matC = params["matC"]
 
@@ -122,6 +149,8 @@ class MLDS(object):
         np.savetxt(outdir+"vecz.txt", self.Ez)
         np.savetxt(outdir+"matA.txt", self.matA)
         np.savetxt(outdir+"matC.txt", self.matC)
+        np.savetxt(outdir+"vecb.txt", self.b)
+        np.savetxt(outdir+"vecd.txt", self.d)
         for m in range(self.M):
             np.savetxt(outdir+f"A_{m}.txt", self.A[m])
             np.savetxt(outdir+f"C_{m}.txt", self.C[m])
@@ -138,6 +167,8 @@ class MLDS(object):
                 outfn=outdir+"Q.png")
         heatmap(self.R, title="Observation covariance",
                 outfn=outdir+"R.png")
+        bar(self.b, title="b", outfn=outdir+"vecb.png")
+        bar(self.d, title="d", outfn=outdir+"vecd.png")
         for m in range(self.M):
             heatmap(self.A[m], title=f"A_{m}",
                     outfn=outdir+f"A_{m}.png")
@@ -145,20 +176,7 @@ class MLDS(object):
                     outfn=outdir+f"C_{m}.png")
 
 
-def pack_params(mlds, multilinear=True):
-    params = {
-        "mu0": mlds.mu0,
-        "Q0": mlds.Q0,
-        "Q": mlds.Q,
-        "R": mlds.R,
-        "A": mlds.A,
-        "C": mlds.C,
-        "matA": mlds.matA,
-        "matC": mlds.matC
-    }
-    return params
-
-def initialize_multilinear_operator(I, J):
+def init_multilinear_operator(I, J):
     Ip = np.prod(I)
     Jp = np.prod(J)
     M = len(I)
@@ -173,14 +191,13 @@ def initialize_multilinear_operator(I, J):
     return B
 
 
-if __name__ == '__main__':
-
+def main():
     # generate synthetic tensor series
     X = np.zeros((100, 5, 5, 7))
     ranks = [2, 4, 2]
     model = MLDS(X, ranks)
-    vecX, _ = model.random_sample(X.shape[0])
-    X = to_numpy([vec_to_tensor(vecX[t], X.shape[1:]) for t in range(len(X))])
+    (X, vecX), _ = model.random_sample(X.shape[0])
+    # X = to_numpy([vec_to_tensor(vecX[t], X.shape[1:]) for t in range(len(X))])
 
     # fit MLDS
     model = MLDS(X, ranks)
@@ -188,3 +205,6 @@ if __name__ == '__main__':
     # model.em(max_iter=20, covariance_types=('diag', 'diag', 'diag'))
     model.em(max_iter=10, covariance_types=('diag', 'full', 'diag'))
     model.save_params()
+
+if __name__ == '__main__':
+    main()

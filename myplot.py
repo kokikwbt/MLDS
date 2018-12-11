@@ -56,3 +56,16 @@ def heatmap(M, figure=True, title='', xlabel='', ylabel='',
         plt.savefig(outfn)
         plt.close()
     if close: plt.close()
+
+def bar(M, figure=True, title='', xlabel='', ylabel='',
+            show=False, close=False, outfn=''):
+    if figure: plt.figure()
+    plt.bar(np.arange(len(M), dtype=int), M)
+    if title: plt.title(title)
+    if xlabel: plt.xlabel(xlabel)
+    if ylabel: plt.ylabel(ylabel)
+    if show: plt.show()
+    if outfn:
+        plt.savefig(outfn)
+        plt.close()
+    if close: plt.close()

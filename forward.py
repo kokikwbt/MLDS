@@ -2,18 +2,20 @@ import numpy as np
 from numpy.linalg import slogdet
 from scipy.linalg import pinv
 from tqdm import trange
-"""
-"""
+
 def forward(X, params, loglh=True):
+    # inputs
     T, N = X.shape
     M = len(params["A"])
     A = params["matA"]
     C = params["matC"]
+    b = params["b"]
+    d = params["d"]
     Q = params["Q"]
     R = params["R"]
     L = A.shape[1]  # dimension of latent variable
     Ih = np.eye(L)
-
+    # outputs
     mu = np.zeros((T, L))
     V = np.zeros((T, L, L))
     P = np.zeros((T, L, L))
@@ -27,13 +29,13 @@ def forward(X, params, loglh=True):
         else:
             P[t-1] = A @ V[t-1] @ A.T + Q
             KP = P[t-1]
-            mu[t] = A @ mu[t-1]
+            mu[t] = A @ mu[t-1] + b
 
         sigma_c = C @ KP @ C.T + R
         inv_sgm = pinv(sigma_c)
 
         K = KP @ C.T @ inv_sgm
-        u_c = C @ mu[t]
+        u_c = C @ mu[t] + d
         delta = X[t, :] - u_c
         mu[t] = mu[t] + K @ delta
         V[t] = (Ih - K @ C) @ KP

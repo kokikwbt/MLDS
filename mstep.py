@@ -64,7 +64,9 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     Q = params["Q"]
     R = params["R"]
     A = params["A"]
+    b = params["b"]
     C = params["C"]
+    d = params["d"]
     M = len(C)
     I = [C[m].shape[0] for m in range(M)]
     J = [A[m].shape[0] for m in range(M)]
@@ -107,6 +109,12 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     matA = kronecker(A, reverse=True)
 
     """
+    update b
+    """
+    b = sum([Ez[t, :] - matA @ Ez[t-1, :] for t in range(1, T)])
+    b = np.asarray(b) / (T - 1)
+
+    """
     update Q
     """
     if type_Q == "diag":
@@ -144,6 +152,12 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     matC = kronecker(C, reverse=True)
 
     """
+    update d
+    """
+    d = sum([X[t] - matC @ Ez[t] for t in range(T)])
+    d = np.asarray(d) / T
+
+    """
     update R
     """
     if type_R == "full":
@@ -158,7 +172,8 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
         delta = (trace(X.T @ X) - 2 * trace(matC @ Sxz.T) + trace(matC @ Szz @ matC.T)) / T / N
         R = diag(np.matlib.repmat(delta, N, 1))
 
-    params = {"mu0": mu0, "Q0": Q0, "Q": Q, "R": R, "A": A, "matA": matA, "C": C, "matC": matC}
+    params = {"mu0": mu0, "Q0": Q0, "Q": Q, "R": R, "A": A,
+                "b": b, "d": d, "matA": matA, "C": C, "matC": matC}
     return params
 
 def update_multilinear_operator(B, omega, psi, phi, cov_type):
