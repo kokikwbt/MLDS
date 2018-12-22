@@ -64,10 +64,12 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     Q = params["Q"]
     R = params["R"]
     A = params["A"]
+    b = params["b"]
     C = params["C"]
+    d = params["d"]
     M = len(C)
-    I = [C[m].shape[1] for m in range(M)]
-    J = [A[m].shape[1] for m in range(M)]
+    I = [C[m].shape[0] for m in range(M)]
+    J = [A[m].shape[0] for m in range(M)]
     T = len(X)
 
     Sz1z = sum(Ez1z[:-1])
@@ -75,14 +77,18 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     Sxz = sum(np.outer(X[t, :], Ez[t]) for t in range(T))
     SzzT = Szz - Ezz[-1]
 
+    """
+    update mu0 & Q0
+    """
     mu0 = Ez[0]
     Q0 = Ezz[0] - np.outer(Ez[0], Ez[0])
-    if type_Q0 == "diag":
-        Q0 = diag(diag(Q0))
-    elif type_Q0 == "full":
+    if type_Q0 == "full":
         pass
+    elif type_Q0 == "diag":
+        Q0 = diag(diag(Q0))
     elif type_Q0 == "isotropic":
-        Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
+        # Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
+        pass
 
     """
     update A
@@ -101,6 +107,12 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
         phi = sum(Ez1z[:-1])
         A = update_multilinear_operator(A, omega, psi, phi, type_Q)
     matA = kronecker(A, reverse=True)
+
+    """
+    update b
+    """
+    b = sum([Ez[t, :] - matA @ Ez[t-1, :] for t in range(1, T)])
+    b = np.asarray(b) / (T - 1)
 
     """
     update Q
@@ -140,6 +152,12 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     matC = kronecker(C, reverse=True)
 
     """
+    update d
+    """
+    d = sum([X[t] - matC @ Ez[t] for t in range(T)])
+    d = np.asarray(d) / T
+
+    """
     update R
     """
     if type_R == "full":
@@ -154,7 +172,8 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
         delta = (trace(X.T @ X) - 2 * trace(matC @ Sxz.T) + trace(matC @ Szz @ matC.T)) / T / N
         R = diag(np.matlib.repmat(delta, N, 1))
 
-    params = {"mu0": mu0, "Q0": Q0, "Q": Q, "R": R, "A": A, "matA": matA, "C": C, "matC": matC}
+    params = {"mu0": mu0, "Q0": Q0, "Q": Q, "R": R, "A": A,
+                "b": b, "d": d, "matA": matA, "C": C, "matC": matC}
     return params
 
 def update_multilinear_operator(B, omega, psi, phi, cov_type):

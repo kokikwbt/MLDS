@@ -4,13 +4,13 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import scale, normalize
-from tensorly import fold, unfold, \
-    to_numpy, vec_to_tensor, tensor_to_vec
+from tensorly import fold, unfold, to_numpy
 from tensorly.tenalg import kronecker
+from tqdm import tqdm, trange
+
 from forward import forward
 from backward import backward
 from mstep import update_mlds_params
-from tqdm import tqdm, trange
 from myplot import *
 
 warnings.filterwarnings("ignore")
@@ -42,9 +42,11 @@ class MLDS(object):
 
         for iter in range(max_iter):
             print("===> iter", iter + 1)
+
             # E-step
             mu, V, P, llh = forward(vecX, params, loglh=True)
             Ez, Ezz, Ez1z = backward(mu, V, P, params)
+
             # M-step
             params = update_mlds_params(
                 vecX, params, Ez, Ezz, Ez1z, covariance_types
@@ -205,7 +207,6 @@ def main():
     (X, vecX), _ = model.random_sample(X.shape[0])
     # X = to_numpy([vec_to_tensor(vecX[t], X.shape[1:]) for t in range(len(X))])
 
-
     # fit MLDS
     model = MLDS(X, ranks)
     # model.em(max_iter=10, covariance_types=('full', 'full', 'full'))
@@ -215,7 +216,6 @@ def main():
 
     plt.plot(model.vecZ)
     plt.show()
-
 
 if __name__ == '__main__':
     main()
