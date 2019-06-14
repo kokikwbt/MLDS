@@ -1,8 +1,10 @@
 import numpy as np
 from tensorly import vec_to_tensor
 from tensorly.tenalg import kronecker
+import seaborn as sns
 import matplotlib.pyplot as plt
 
+sns.set()
 outdir = './out/results/'
 
 X = np.load(outdir+'X.npy')

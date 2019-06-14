@@ -1,15 +1,18 @@
+#!/bin/env python3
 import numpy as np
 from numpy import diag, prod, trace
 from scipy.linalg import pinv
 from tensorly import to_numpy
 from tensorly.tenalg import kronecker
 from itertools import product
-"""
-Maximum likelihood estimation of
-multi-linear/linear dynamical system (M-step)
-"""
+
+from reshape import vec_to_factors, factors_to_vec, mat_to_tensor, tensor_to_mat
+
 
 def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
+    """Maximum likelihood estimation of
+        multi-linear dynamical system (M-step)
+    """
     type_Q0, type_Q, type_R = covariance_types
     mu0 = params["mu0"]
     Q0 = params["Q0"]
@@ -39,8 +42,7 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
     elif type_Q0 == "diag":
         Q0 = diag(diag(Q0))
     elif type_Q0 == "isotropic":
-        # Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
-        pass
+        Q0 = diag(np.tile(trace(Q0) / J, (J, 1)))
 
     """
     update A
@@ -128,6 +130,7 @@ def update_mlds_params(X, params, Ez, Ezz, Ez1z, covariance_types):
                 "b": b, "d": d, "matA": matA, "C": C, "matC": matC}
     return params
 
+
 def update_multilinear_operator(B, omega, psi, phi, cov_type):
     """
     B: factorized tensor
@@ -142,6 +145,7 @@ def update_multilinear_operator(B, omega, psi, phi, cov_type):
     newB = descend(vecB, omega, psi, phi, cov_type, I, J)
     newB = vec_to_factors(newB, I, J)
     return newB
+
 
 def descend(x0, omega, psi, phi, cov_type, I, J,
             epsilon=1.e-18, maxiter=1.e+12, learning_rate=.8):
@@ -172,6 +176,7 @@ def descend(x0, omega, psi, phi, cov_type, I, J,
             fx = f(x)
     return x
 
+
 def _f(z, omega, psi, phi, cov_type, I, J):
     B = kronecker(vec_to_factors(z, I, J), reverse=True)
     tmp = phi @ B.T
@@ -183,6 +188,7 @@ def _f(z, omega, psi, phi, cov_type, I, J):
     elif cov_type == 'isotropic':
         y = omega @ trace(tmp)
     return y
+
 
 def _df(z, omega, psi, phi, cov_type, I, J):
     IJ = I * J
@@ -212,34 +218,3 @@ def _df(z, omega, psi, phi, cov_type, I, J):
         if m > 0: index += sum(IJ[:m])
         g[index] = 2 * G.flatten('F')
     return g
-
-# https://jp.mathworks.com/help/matlab/math/matrix-indexing.html
-# matlab: A(:) -> python: A.T.flatten() = A.flatten('F')
-def factors_to_vec(factors):
-    """ concatenate column vectors """
-    return np.concatenate([factor.flatten('F') for factor in factors])
-
-def vec_to_factors(vector, I, J):
-    """"""
-    M = len(I)
-    sizes = I * J
-    index = []
-    for m in range(M):
-        index.append(np.arange(sizes[m]))
-        if m > 0: index[-1] += sum(sizes[:m])
-    return [vector[index[m]].reshape((I[m], J[m]), order='F') for m in range(M)]
-
-def tensor_to_mat(tensor):
-    M = tensor.ndim
-    I = list(tensor.shape)
-    if M % 2 == 1:
-        M += 1
-        I.append(1)
-    I = to_numpy(I)
-    r = prod(I[:int(M/2)])
-    c = prod(I[(np.arange(M/2) + M/2).astype(int)])
-    return tensor.flatten('F').reshape((r, c), order='F')
-
-def mat_to_tensor(matrix, shape):
-    vec = matrix.flatten('F')
-    return vec.reshape(shape, order='F')

@@ -1,7 +1,9 @@
+#!/bin/env python3
 import numpy as np
 from numpy.linalg import slogdet
 from scipy.linalg import pinv
 from tqdm import trange
+
 
 def forward(X, params, loglh=True):
     # inputs

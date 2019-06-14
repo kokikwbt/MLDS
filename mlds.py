@@ -1,3 +1,4 @@
+#!/bin/env python3
 import os
 import shutil
 import warnings
@@ -10,20 +11,21 @@ from tqdm import tqdm, trange
 
 from forward import forward
 from backward import backward
-from mstep import update_mlds_params
+from mlds_solver import update_mlds_params
+from reshape import vec_to_tensor, tensor_to_vec
 from myplot import *
 
-warnings.filterwarnings("ignore")
 
 class MLDS(object):
     def __init__(self, X, ranks):
         self.M = X.ndim - 1
-        self.T = T = X.shape[0]
-        self.I = I = X.shape[1:]
-        self.J = J = ranks
+        self.T = T = X.shape[0]  # sequence length
+        self.I = I = X.shape[1:]  # shape of observation tensor
+        self.J = J = ranks  # shape of latent state tensor
         self.X = X
         self.W = ~np.isnan(X)
-        self.vecX = to_numpy([X[t].flatten('F') for t in range(T)])
+        # self.vecX = to_numpy([X[t].flatten('F') for t in range(T)])
+        self.vecX = tensor_to_vec(X, sequential=True)
         self.vecW = ~np.isnan(self.vecX)
         self.init_mlds_params(I, J, random=True)
         # for training log
@@ -173,10 +175,10 @@ class MLDS(object):
         bar(self.b, title="b", outfn=outdir+"vecb.png")
         bar(self.d, title="d", outfn=outdir+"vecd.png")
         for m in range(self.M):
-            heatmap(self.A[m], title=f"A_{m}",
-                    outfn=outdir+f"A_{m}.png")
-            heatmap(self.C[m], title=f"C_{m}",
-                    outfn=outdir+f"C_{m}.png")
+            heatmap(self.A[m], center=0,
+                    title=f"A_{m}", outfn=outdir+f"A_{m}.png")
+            heatmap(self.C[m], center=0,
+                    title=f"C_{m}", outfn=outdir+f"C_{m}.png")
 
 
 def init_multilinear_operator(I, J):
@@ -193,11 +195,6 @@ def init_multilinear_operator(I, J):
         B[mode] = U[:, :J[mode]]
     return B
 
-def vec_to_tensor(vector, ranks):
-    return vector.reshape(ranks, order='F')
-
-def tensor_to_vec(tensor):
-    return tensor.flatten('F')
 
 def main():
     # generate synthetic tensor series
@@ -205,17 +202,16 @@ def main():
     ranks = [2, 4, 2]
     model = MLDS(X, ranks)
     (X, vecX), _ = model.random_sample(X.shape[0])
-    # X = to_numpy([vec_to_tensor(vecX[t], X.shape[1:]) for t in range(len(X))])
 
     # fit MLDS
     model = MLDS(X, ranks)
     # model.em(max_iter=10, covariance_types=('full', 'full', 'full'))
     model.em(max_iter=20, covariance_types=('diag', 'diag', 'diag'))
     # model.em(max_iter=10, covariance_types=('full', 'full', 'full'))
+
     model.save_params()
 
-    plt.plot(model.vecZ)
-    plt.show()
 
 if __name__ == '__main__':
+    warnings.filterwarnings("ignore")
     main()
