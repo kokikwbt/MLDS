@@ -5,7 +5,7 @@ from scipy.linalg import pinv
 from tqdm import trange
 
 
-def forward(X, params, loglh=True):
+def forward(X, params, loglikelihood=True):
     # inputs
     T, N = X.shape
     M = len(params["A"])
@@ -42,7 +42,7 @@ def forward(X, params, loglh=True):
         mu[t] = mu[t] + K @ delta
         V[t] = (Ih - K @ C) @ KP
 
-        if loglh:
+        if loglikelihood:
             df = delta @ inv_sgm @ delta / 2
             if df < 0:
                 print("det of not positive definite < 0")
