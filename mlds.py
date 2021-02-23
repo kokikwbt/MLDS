@@ -195,8 +195,8 @@ def init_multilinear_operator(I, J):
 
 def main():
     # generate synthetic tensor series
-    X = np.zeros((100, 5, 5, 7))
-    ranks = [2, 4, 2]
+    X = np.zeros((100, 50, 10))
+    ranks = [2, 4]
     model = MLDS(X, ranks)
     _, X = model.random_sample(X.shape[0])
 

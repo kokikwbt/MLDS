@@ -3,8 +3,9 @@ import numpy as np
 from numpy.linalg import slogdet
 from scipy.linalg import pinv
 from tqdm import trange
+from numba import jit
 
-
+# @jit(nopython=True)
 def forward(X, params, loglikelihood=True):
     # inputs
     T, N = X.shape
@@ -24,6 +25,7 @@ def forward(X, params, loglikelihood=True):
     llh = 0
 
     for t in trange(T, desc="forward"):
+    # for t in range(T):
         if t == 0:
             KP = params["Q0"]
             V[0] = params["Q0"]
