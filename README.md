@@ -1,47 +1,40 @@
-# MLDS
-## Publication
-Mark Rogers, Lei Li and Stuart J. Russell (2013), "Multilinear Dynamical Systems for Tensor Time Series", In NIPS'13.
-\[[link](http://www.cs.cmu.edu/~leili/mlds/index.html)\]
+# MLDS: Multilinear Dynamical System
 
-## Background
+**Unofficial** Python implementation of MLDS:  
+"Multilinear dynamical systems for tensor time series.",
+Rogers, Mark, Lei Li, and Stuart J. Russell.
+Advances in Neural Information Processing Systems 26 (2013): 2634-2642.  
+The original implementation is found at the author's homepage
+\[[link](http://www.cs.cmu.edu/~leili/mlds/index.html)\].
 
 
-## Usage
-```python
-class mlds.MLDS
+## Model
+
+$$\mathcal{Z}_1\sim\mathcal{N}(\mathcal{U}_0,\mathcal{Q}_0)$$
+$$\mathcal{Z}_{n+1}|\mathcal{Z}_{n}\sim\mathcal{N}(\mathcal{A}\otimes\mathcal{Z}_n,\mathcal{Q})$$
+
+Then, original tensors are represented by
+
+$$\mathcal{X}_n|\mathcal{Z}_n\sim\mathcal{N}(\mathcal{C}\otimes\mathcal{Z}_n,\mathcal{R})$$
+
+where, 
+- the initial state covariance, $\mathcal{Q}_0$
+- the transition covariance, $\mathcal{Q}$
+- the observation covariace, $\mathcal{R}$
+
+The shapes of these covariaces can be specified in
+'full', 'diag', and 'isotropic', independently.
+
+## Reference
+
+```bibtex
+@article{rogers2013multilinear,
+  title={Multilinear dynamical systems for tensor time series},
+  author={Rogers, Mark and Li, Lei and Russell, Stuart J},
+  journal={Advances in Neural Information Processing Systems},
+  volume={26},
+  pages={2634--2642},
+  year={2013},
+  publisher={Citeseer}
+}
 ```
-
-### Methods
-
-```python
-__init__(self, X, ranks)
-```
-
-Initialize self.
-#### Parameters:
-  * X: nd-array
-    * tensor of shape T x N1 x ... x NM
-  * ranks: int list
-    * size of latent tensor Z
-
-
-```python
-em(self, max_iter=10, tol=1.e-5, cov_types)
-```
-
-Estimate mlds parameters.
-#### Parameters:
-  * max_iter: int
-  * tol: float, optional
-  * cov_types: list
-    * covariance types for initial state, transition tensor and observation tensor
-    * choose 'full', 'diag' or 'isotropic'
-
-
-```python
-save_params(self, outdir="./out/")
-```
-
-Save the current parameters of mlds model.
-#### Parameters:
-  * outdir: string

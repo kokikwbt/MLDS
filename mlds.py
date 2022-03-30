@@ -1,212 +1,368 @@
-#!/bin/env python3
-import os
-import shutil
+import time
 import warnings
 import numpy as np
-import pandas as pd
-from sklearn.preprocessing import scale, normalize
-from tensorly import fold, unfold, to_numpy
-from tensorly.tenalg import kronecker
-from tqdm import tqdm, trange
+import tensorly as tl
 
-from forward import forward
-from backward import backward
-from mlds_solver import update_mlds_params
-from reshape import vec_to_tensor, tensor_to_vec
-from myplot import *
+try:
+    from optimizer import update_multilinear_operator
+except:
+    from .optimizer import update_multilinear_operator
 
 
-class MLDS(object):
-    """
-    """
-    def __init__(self, X, ranks):
-        self.M = X.ndim - 1
-        self.T = T = X.shape[0]  # sequence length
-        self.I = I = to_numpy(X.shape[1:])  # shape of observation tensor
-        self.J = J = to_numpy(ranks)  # shape of latent state tensor
-        self.X = X
-        self.W = ~np.isnan(X)
-        self.vecX = tensor_to_vec(X, sequential=True)
-        self.vecW = ~np.isnan(self.vecX)
-        self.hist = []  # for training log
-        self.init_mlds_params(random=True)
+def vec_to_tensor(vector, ranks, sequential=False):
+    if sequential == True:
+        return tl.to_numpy([vec_to_tensor(vt, ranks) for vt in vector])
+    else:
+        return vector.reshape(ranks, order='F')
 
-    def init_mlds_params(self, random=True):
-        """
-        """
-        M, I, J = self.M, self.I, self.J
-        Ip, Jp, IJ = np.prod(I), np.prod(J), I * J
-        self.Q0 = np.eye(Jp)  # initial state covariances
-        self.Q = np.eye(Jp)  # transition covariances
-        self.R = np.eye(Ip)  # observation covariances
 
-        if random == True:
-            rnd = np.random.RandomState(None)
-            self.mu0 = rnd.normal(0, 1, size=Jp)
-            self.A = init_multilinear_operator(J, J)
-            self.C = init_multilinear_operator(I, J)
-            self.b = rnd.normal(0, 1, size=Jp)
-            self.d = rnd.normal(0, 1, size=Ip)
+def tensor_to_vec(tensor, sequential=False):
+    if sequential == True:
+        return tl.to_numpy([tensor_to_vec(tt) for tt in tensor])
+    else:
+        return tensor.flatten('F')
 
+
+def update_mu0(Ez):
+    return Ez[0]
+
+
+def update_Q0(Ez, Ezz, J, covariance_type):
+
+    Q0 = Ezz[0] - np.outer(Ez[0], Ez[0])
+
+    if covariance_type == 'full':
+        pass
+    elif covariance_type == 'diag':
+        Q0 = np.diag(np.diag(Q0))
+    elif covariance_type == 'isotropic':
+        Q0 = np.diag(np.tile(np.trace(Q0) / J, (J, 1)))
+
+    return Q0
+
+
+def update_A(A, Ezz, Ez1z, Sz1z, SzzT, Q, J, covariance_type):
+
+    A_ = Sz1z @ np.linalg.pinv(SzzT)
+
+    if len(J) == 1:
+        A = [A_]
+
+    else:
+        if covariance_type == 'full':
+            omg = np.eye(np.prod(J)) @ np.linalg.pinv(Q)
+        elif covariance_type == 'diag':
+            omg = 1 / np.diag(Q)
+        elif covariance_type == 'isotropic':
+            omg = 1 / Q
+
+        psi = sum(Ezz[:-1])
+        phi = sum(Ez1z[:-1])
+        A = update_multilinear_operator(
+            A, omg, psi, phi, covariance_type)
+
+    return A
+
+
+def update_C(C, Ezz, Szz, Sxz, R, I, covariance_type):
+
+    C_ = Sxz @ np.linalg.pinv(Szz)
+
+    if len(I) == 1:
+        C = [C_]
+
+    else:
+        if covariance_type == 'full':
+            omg = np.eye(np.prod(I)) @ np.linalg.pinv(R)
+        elif covariance_type == 'diag':
+            omg = 1 / np.diag(R)
+        elif covariance_type == 'isotropic':
+            omg = 1 / R
+
+        psi = sum(Ezz)
+        phi = Sxz
+        C = update_multilinear_operator(
+            C, omg, psi, phi, covariance_type)
+
+    return C
+
+
+def update_b(Ez, A):
+    T = len(Ez)
+    matA = tl.tenalg.kronecker(A, reverse=True)
+    return sum([Ezt - matA @ Ezt1 for Ezt, Ezt1 in zip(Ez[1:], Ez[:-1])]) / (T - 1)
+
+
+def update_d(vecX, Ez, C):
+    matC = tl.tenalg.kronecker(C, reverse=True)
+    return sum([vecXt - matC @ Ezt for vecXt, Ezt in zip(vecX, Ez)]) / vecX.shape[0]
+
+
+def update_Q(Ezz, Szz, Sz1z, SzzT, J, A, covariance_type):
+    T = len(Ezz)
+    matA = tl.tenalg.kronecker(A, reverse=True)
+
+    if covariance_type == "diag":
+        Q = np.diag(Szz) - np.diag(Ezz[0])
+        Q -= 2 * np.diag(matA @ Sz1z.T)
+        Q += np.diag(matA @ SzzT @ matA.T)
+        Q = np.diag(Q / (T - 1))
+
+    elif covariance_type == "full":
+        val = matA @ Sz1z.T
+        Q = Szz - Ezz[0] - val - val.T + matA @ SzzT @ matA.T
+        Q /= T - 1
+
+    elif covariance_type == "isotropic":
+        delta = np.trace(Szz) - np.trace(Ezz[0])
+        delta -= 2 * np.trace(matA @ Sz1z.T)
+        delta += np.trace(matA @ SzzT @ matA.T)
+        delta = delta / (T - 1) / np.prod(J)
+        Q = np.diag(np.matlib.repmat(delta, np.prod(J), 1))
+
+    return Q
+
+
+def update_R(vecX, Sxz, Szz, C, covariance_type):
+    T, N = vecX.shape
+    matC = tl.tenalg.kronecker(C, reverse=True)
+
+    if covariance_type == "full":
+        val = matC @ Sxz.T
+        R = (vecX.T @ vecX - val - val.T + matC @ Szz @ matC.T) / T
+
+    elif covariance_type == "diag":
+        R = np.diag((
+                np.diag(vecX.T @ vecX)
+                - 2 * np.diag(matC @ Sxz.T)
+                + np.diag(matC @ Szz @ matC.T)
+            ) / T)
+
+    elif covariance_type == "isotropic":
+        delta = (np.trace(vecX.T @ vecX) - 2 * np.trace(matC @ Sxz.T) + np.trace(matC @ Szz @ matC.T)) / T / N
+        R = np.diag(np.matlib.repmat(delta, N, 1))
+        
+    return R
+
+
+class MLDS:
+    def __init__(self,
+        initial_state_cov='diag',
+        transition_cov='diag',
+        observation_cov='diag',
+        transition_offset=False,
+        observation_offset=False,
+    ):
+        covariance_types = ['full', 'isotropic', 'diag']
+
+        assert initial_state_cov in covariance_types
+        assert transition_cov    in covariance_types
+        assert observation_cov   in covariance_types
+
+        self.init_state_cov = initial_state_cov
+        self.trans_cov = transition_cov
+        self.obs_cov = observation_cov
+        self.trans_offset = transition_offset
+        self.obs_offset = observation_offset
+        self.history = []
+
+    @staticmethod
+    def initialize_multilinear_operator(shape, ranks):
+
+        multi_linear_operator = []
+
+        for mode in range(len(shape)):
+            size = (shape[mode], shape[mode])
+            row = np.random.normal(0, 1, size=size)
+            while np.linalg.matrix_rank(row) < shape[mode]:
+                row = np.random.normal(0, 1, size=size)
+
+            u, _, _ = np.linalg.svd(row)
+            multi_linear_operator.append(u[:, :ranks[mode]])
+        
+        return multi_linear_operator
+
+    def initialize(self, shape, ranks, init='random', random_state=None):
+
+        self.T = T = shape[0]
+        self.M = M = len(shape) - 1
+        self.N = N = np.prod(shape[1:])
+        self.L = L = np.prod(ranks)
+        self.I = I = shape[1:]
+        self.J = J = ranks
+
+        prod_I = np.prod(I)
+        prod_J = np.prod(J)
+
+        self.Q0 = np.eye(prod_J)
+        self.Q = np.eye(prod_J)
+        self.R = np.eye(prod_I)
+
+        if init == 'random':
+            rand = np.random.RandomState(random_state)
+            self.mu0 = rand.normal(0, 1, size=prod_J)
+            self.A = self.initialize_multilinear_operator(J, J)
+            self.C = self.initialize_multilinear_operator(I, J)
+            self.b = rand.normal(0, 1, size=prod_J)
+            self.d = rand.normal(0, 1, size=prod_I)
+        
         else:
-            self.mu0 = np.zeros(Jp)
+            self.mu0 = np.zeros(prod_J)
             self.A = [np.eye(J[m], J[m]) for m in range(M)]
             self.C = [np.eye(I[m], J[m]) for m in range(M)]
-            self.b = np.zeros(Jp)
-            self.d = np.zeros(Ip)
+            self.b = np.zeros(prod_J)
+            self.d = np.zeros(prod_I)
 
-        self.matA = kronecker(self.A, reverse=True)
-        self.matC = kronecker(self.C, reverse=True)
+        # Allocation for the forward algorithm
+        self.Ih = np.eye(L)
+        self.mu = np.zeros((T, L))
+        self.V = np.zeros((T, L, L))
+        self.P = np.zeros((T, L, L))
+        
+        # Allocation for the backward algorithm
+        self.Ez = np.zeros((T, L))
+        self.Ezz = np.zeros((T, L, L))
+        self.Ez1z = np.zeros((T, L, L))
 
-    def em(self, covariance_types, X=None,
-           max_iter=10, tol=1.e-5, verbose=False):
-        """EM algorithm for MLDS
+    def forward(self, vecX):
+        
+        llh = 0.
+        M = self.M
+        Ih = self.Ih
+        mu = self.mu
+        V = self.V
+        P = self.P
+        A = tl.tenalg.kronecker(self.A, reverse=True)
+        C = tl.tenalg.kronecker(self.C, reverse=True)
+        Q = self.Q
+        R = self.R
+        b = self.b
+        d = self.d
 
-        max_iter: the maximum # of EM iterations
-        tol: the convergence bound
-        covariance_types: [isotropic/diag/full]
+        for t in range(self.T):
 
-        """
-        X = self.X if X is None else X
-        vecX = tensor_to_vec(X, sequential=True)
-        params = self.pack_params()
-
-        for iteration in trange(max_iter, desc='EM'):
-            # E-step
-            mu, V, P, llh = forward(vecX, params, loglikelihood=True)
-            Ez, Ezz, Ez1z = backward(mu, V, P, params)
-            # M-step
-            params = update_mlds_params(
-                vecX, params, Ez, Ezz, Ez1z, covariance_types
-            )
-
-            print(f'log-likelihood= {llh:.2f}')
-            self.hist.append(llh)
-            if iteration > 0:
-                if abs(self.hist[-1] - self.hist[-2]) < tol:
-                    break  # converged
-
-        self.unpack_params(params)
-        self.vecZ = Ez
-
-    def random_sample(self, n_sample, return_vec=False):
-        """"""
-        vecZ = np.zeros((n_sample, np.prod(self.J)))
-        vecX = np.zeros((n_sample, np.prod(self.I)))
-
-        for t in trange(n_sample, desc="random sampling"):
             if t == 0:
-                vecZ[0, :] = np.random.multivariate_normal(self.mu0, self.Q0)
+                KP = self.Q0
+                V[0] = self.Q0
+                mu[0] = self.mu0
+
             else:
-                vecZ[t, :] = np.random.multivariate_normal(self.matA @ vecZ[t-1, :], self.Q)
-            vecX[t, :] = np.random.multivariate_normal(self.matC @ vecZ[t, :], self.R)
+                P[t - 1] = A @ V[t - 1] @ A.T + Q
+                KP = P[t - 1]
+                mu[t] = A @ mu[t - 1] + b
 
-        # convert vector to tensor
-        Z = vec_to_tensor(vecZ, self.J, sequential=True)
-        X = vec_to_tensor(vecX, self.I, sequential=True)
+            sgm = C @ KP @ C.T + R
+            inv_sgm = np.linalg.pinv(sgm)
 
-        if return_vec == True:
-            return Z, X, vecZ, vecX
+            K = KP @ C.T @ inv_sgm
+            u = C @ mu[t] + d
+            dlt = vecX[t] - u
+            mu[t] = mu[t] + K @ dlt
+            V[t] = (Ih - K @ C) @ KP
+
+            # log-likelihood
+            df = dlt @ inv_sgm @ dlt / 2
+            sign, logdet = np.linalg.slogdet(inv_sgm)
+            llh -= 0.5 * M * np.log(2 * np.pi)
+            llh += sign * logdet * 0.5 - df
+
+        return llh
+
+    def backward(self):
+
+        A = tl.tenalg.kronecker(self.A, reverse=True)
+        V = self.V  # result of the forward algorithm
+        P = self.P  # reuslt of the forward algorithm
+        mu = self.mu
+        Ez = self.Ez
+        Ezz = self.Ezz
+        Ez1z = self.Ez1z
+        Vhat = self.V[-1]
+
+        Ez[-1] = self.mu[-1]
+        Ezz[-1] = Vhat + np.outer(Ez[-1], Ez[-1])
+
+        for t in reversed(range(self.T - 1)):
+            J = V[t] @ A.T @ np.linalg.pinv(P[t])
+            Ez[t] = mu[t] + J @ (Ez[t + 1] - A @ mu[t])
+            Ez1z[t] = Vhat @ J.T + np.outer(Ez[t + 1], Ez[t])
+            Vhat = V[t] + J @ (Vhat - P[t]) @ J.T
+            Ezz[t] = Vhat + np.outer(Ez[t], Ez[t])
+
+        # return Ez, Ezz, Ez1z
+
+    def solve(self, vecX):
+
+        T = self.T
+        Ez = self.Ez
+        Ezz = self.Ezz
+        Ez1z = self.Ez1z
+        Szz  = sum(Ezz)
+        Sz1z = sum(Ez1z[:-1])
+        Sxz  = sum(np.outer(vecX[t], Ez[t]) for t in range(T))
+        SzzT = Szz - Ezz[-1]
+
+        # Initial state mean/covariance
+        self.mu0 = update_mu0(Ez)
+        self.Q0 = update_Q0(Ez, Ezz, self.J, self.init_state_cov)
+
+        # Multilinear projections
+        self.A = update_A(self.A, Ezz, Ez1z, Sz1z, SzzT, self.Q, self.J, self.trans_cov)
+        self.C = update_C(self.C, Ezz, Szz, Sxz, self.R, self.I, self.obs_cov)
+
+        # Offsets (optional)
+        if self.trans_offset:
+            self.b = update_b(Ez, self.A)
+        if self.obs_offset:
+            self.d = update_d(vecX, Ez, self.C)
+        
+        # Covariances
+        self.Q = update_Q(Ezz, Szz, Sz1z, SzzT, self.J, self.A, self.trans_cov)
+        self.R = update_R(vecX, Sxz, Szz, self.C, self.obs_cov)
+
+    def fit(self, tensor, ranks, temporal_mode=0,
+            max_iter=50, tol=1e-4, init='random', verbose=0):
+
+        assert tensor.ndim == len(ranks) + 1
+
+        if not temporal_mode == 0:
+            tensor = np.moveaxis(tensor, temporal_mode, 0)
+
+        self.initialize(tensor.shape, ranks)
+        vecX = tensor_to_vec(tensor, sequential=True)
+
+        # EM algorithm
+
+        for iteration in range(max_iter):
+
+            tic = time.process_time()
+            # E-step
+            llh = self.forward(vecX)
+            self.backward()
+            # M-step
+            self.solve(vecX)
+
+            toc = time.process_time() - tic
+            self.history.append(llh)
+
+            print('iter= {}; llh= {:.3f}; time= {:.3f} [sec]'.format(
+                iteration+1, llh, toc))
+
+            # convergence check
+            if iteration > 2:
+                if np.abs(self.history[-1] - self.history[-2]) < tol:
+                    print('converged!!')
+                    break
+
         else:
-            return Z, X
+            warnings.warn("EM-algorithm did not converge")
 
-    def pack_params(self):
-        params = {
-            "mu0": self.mu0,
-            "Q0": self.Q0,
-            "Q": self.Q,
-            "R": self.R,
-            "A": self.A,
-            "b": self.b,
-            "C": self.C,
-            "d": self.d,
-            "matA": self.matA,
-            "matC": self.matC
-        }
-        return params
+    def predict(self, tensor):
+        """ """
+        assert tensor.shape[1:] == self.I
+        raise NotImplementedError
 
-    def unpack_params(self, params):
-        self.mu0 = params["mu0"]
-        self.Q0 = params["Q0"]
-        self.Q = params["Q"]
-        self.R = params["R"]
-        self.A = params["A"]
-        self.b = params["b"]
-        self.C = params["C"]
-        self.d = params["d"]
-        self.matA = params["matA"]
-        self.matC = params["matC"]
+    def smooth(self, tensor):
+        assert tensor.shape[1:] == self.I
+        raise NotImplementedError
 
-    def save_params(self, outdir="./out/"):
-        outdir += "results/"
-        if os.path.exists(outdir):
-            shutil.rmtree(outdir)
-        os.mkdir(outdir)
-        np.save(outdir+"X", self.X)
-        np.save(outdir+"mu0", self.mu0)
-        np.save(outdir+"Q0", self.Q0)
-        np.save(outdir+"Q", self.Q)
-        np.save(outdir+"R", self.R)
-        np.savetxt(outdir+"vecX.txt", self.vecX)
-        np.savetxt(outdir+"vecz.txt", self.vecZ)
-        np.savetxt(outdir+"matA.txt", self.matA)
-        np.savetxt(outdir+"matC.txt", self.matC)
-        np.savetxt(outdir+"vecb.txt", self.b)
-        np.savetxt(outdir+"vecd.txt", self.d)
-        for m in range(self.M):
-            np.savetxt(outdir+f"A_{m}.txt", self.A[m])
-            np.savetxt(outdir+f"C_{m}.txt", self.C[m])
-        plot(self.hist, xlabel="# of EM iterations",
-             ylabel="Log-likelihood",
-             outfn=outdir+"loss.png")
-        heatmap(self.matA, title="mat(A)",
-                outfn=outdir+"matA.png")
-        heatmap(self.matC, title="mat(C)",
-                outfn=outdir+"matC.png")
-        heatmap(self.Q0, title="initial state covariance",
-                outfn=outdir+"Q0.png")
-        heatmap(self.Q, title="Transition covariance",
-                outfn=outdir+"Q.png")
-        heatmap(self.R, title="Observation covariance",
-                outfn=outdir+"R.png")
-        bar(self.b, title="b", outfn=outdir+"vecb.png")
-        bar(self.d, title="d", outfn=outdir+"vecd.png")
-        for m in range(self.M):
-            heatmap(self.A[m], center=0,
-                    title=f"A_{m}", outfn=outdir+f"A_{m}.png")
-            heatmap(self.C[m], center=0,
-                    title=f"C_{m}", outfn=outdir+f"C_{m}.png")
-
-
-def init_multilinear_operator(I, J):
-    Ip = np.prod(I)
-    Jp = np.prod(J)
-    M = len(I)
-    B = [None] * M
-    for mode in range(M):
-        size = (I[mode], I[mode])
-        row = np.random.normal(0, 1, size=size)
-        while np.linalg.matrix_rank(row) < I[mode]:
-            row = np.random.normal(0, 1, size=size)
-        U, S, V = np.linalg.svd(row)
-        B[mode] = U[:, :J[mode]]
-    return B
-
-
-def main():
-    # generate synthetic tensor series
-    X = np.zeros((100, 50, 10))
-    ranks = [2, 4]
-    model = MLDS(X, ranks)
-    _, X = model.random_sample(X.shape[0])
-
-    # fit MLDS
-    model = MLDS(X, ranks)
-    model.em(max_iter=20, covariance_types=('diag', 'diag', 'diag'))
-
-    model.save_params()
-
-
-if __name__ == '__main__':
-    warnings.filterwarnings("ignore")
-    main()
